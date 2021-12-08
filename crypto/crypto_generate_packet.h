@@ -43,10 +43,10 @@
 #include <rte_prefetch.h>
 #include <rte_random.h>
 #include <rte_hexdump.h>
-#include "generate_packet.h"
 #ifdef RTE_CRYPTO_SCHEDULER
 #include <rte_cryptodev_scheduler.h>
 #endif
+#include "generate_packet.h"
 
 enum cdev_type {
 	CDEV_TYPE_ANY,
@@ -173,7 +173,8 @@ struct l2fwd_crypto_options {
 	unsigned int mac_updating;
 };
 
-struct l2fwd_crypto_options goptions;
+static struct l2fwd_crypto_options goptions;
+
 /** l2fwd crypto lcore params */
 struct l2fwd_crypto_params {
 	uint8_t dev_id;
@@ -197,6 +198,7 @@ struct l2fwd_crypto_params {
 	enum rte_crypto_auth_algorithm auth_algo;
 	enum rte_crypto_aead_algorithm aead_algo;
 };
+struct l2fwd_crypto_params port_cparams[100];
 
 struct lcore_queue_conf {
 	unsigned nb_rx_ports;
@@ -222,8 +224,8 @@ static struct rte_eth_conf port_conf = {
 	},
 };
 
-struct rte_mempool *l2fwd_pktmbuf_pool;
-struct rte_mempool *l2fwd_crypto_op_pool;
+static struct rte_mempool* l2fwd_pktmbuf_pool;
+static struct rte_mempool* l2fwd_crypto_op_pool;
 static struct {
 	struct rte_mempool *sess_mp;
 	struct rte_mempool *priv_mp;
@@ -247,8 +249,8 @@ struct l2fwd_crypto_statistics {
 	uint64_t errors;
 } __rte_cache_aligned;
 
-struct l2fwd_port_statistics port_statistics[RTE_MAX_ETHPORTS];
-struct l2fwd_crypto_statistics crypto_statistics[RTE_CRYPTO_MAX_DEVS];
+static struct l2fwd_port_statistics port_statistics[RTE_MAX_ETHPORTS];
+static struct l2fwd_crypto_statistics crypto_statistics[RTE_CRYPTO_MAX_DEVS];
 
 /* A tsc-based timer responsible for triggering statistics printout */
 #define TIMER_MILLISECOND 2000000ULL /* around 1ms at 2 Ghz */
@@ -257,7 +259,7 @@ struct l2fwd_crypto_statistics crypto_statistics[RTE_CRYPTO_MAX_DEVS];
 /* default period is 10 seconds */
 static int64_t timer_period = 10 * TIMER_MILLISECOND * 1000;
 /* Need to update send and receive packet */
-static void
+void
 print_stats(void)
 {
 	uint64_t total_packets_dropped, total_packets_tx, total_packets_rx;
@@ -336,7 +338,7 @@ print_stats(void)
 	fflush(stdout);
 }
 
-static int
+int
 l2fwd_crypto_send_burst(struct lcore_queue_conf *qconf, unsigned n,
 		struct l2fwd_crypto_params *cparams)
 {
@@ -361,7 +363,7 @@ l2fwd_crypto_send_burst(struct lcore_queue_conf *qconf, unsigned n,
 	return 0;
 }
 
-static int
+int
 l2fwd_crypto_enqueue(struct rte_crypto_op *op,
 		struct l2fwd_crypto_params *cparams)
 {
@@ -385,7 +387,7 @@ l2fwd_crypto_enqueue(struct rte_crypto_op *op,
 	return 0;
 }
 
-static int
+int
 l2fwd_simple_crypto_enqueue(struct rte_mbuf *m,
 		struct rte_crypto_op *op,
 		struct l2fwd_crypto_params *cparams)
@@ -546,7 +548,7 @@ l2fwd_simple_crypto_enqueue(struct rte_mbuf *m,
 
 
 /* Send the burst of packets on an output interface */
-static int
+int
 l2fwd_send_burst(struct lcore_queue_conf *qconf, unsigned n,
 		uint16_t port, char *mac_addr, char *src_addr, char *dst_addr, char *data)
 {
@@ -592,7 +594,7 @@ l2fwd_send_burst(struct lcore_queue_conf *qconf, unsigned n,
 
 /* Enqueue packets for TX and prepare them to be sent */
 
-static int
+int
 l2fwd_send_packet(struct rte_mbuf *m, uint16_t port)
 {
 	unsigned lcore_id, len;
@@ -614,7 +616,7 @@ l2fwd_send_packet(struct rte_mbuf *m, uint16_t port)
 	return 0;
 }
 
-static void
+void
 l2fwd_mac_updating(struct rte_mbuf *m, uint16_t dest_portid)
 {
 	struct rte_ether_hdr *eth;
@@ -630,7 +632,7 @@ l2fwd_mac_updating(struct rte_mbuf *m, uint16_t dest_portid)
 	rte_ether_addr_copy(&l2fwd_ports_eth_addr[dest_portid], &eth->s_addr);
 }
 
-static void
+void
 l2fwd_simple_forward(struct rte_mbuf *m, uint16_t portid,
 		struct l2fwd_crypto_options *options)
 {
@@ -645,7 +647,7 @@ l2fwd_simple_forward(struct rte_mbuf *m, uint16_t portid,
 }
 
 /** Generate random key */
-static void
+void
 generate_random_key(uint8_t *key, unsigned length)
 {
 	int fd;
@@ -662,7 +664,7 @@ generate_random_key(uint8_t *key, unsigned length)
 		rte_exit(EXIT_FAILURE, "Failed to generate random key\n");
 }
 
-static struct rte_cryptodev_sym_session *
+struct rte_cryptodev_sym_session *
 initialize_crypto_session(struct l2fwd_crypto_options *options, uint8_t cdev_id)
 {
 	struct rte_crypto_sym_xform *first_xform;
@@ -701,11 +703,11 @@ initialize_crypto_session(struct l2fwd_crypto_options *options, uint8_t cdev_id)
 	return session;
 }
 
-static void
+void
 l2fwd_crypto_options_print(struct l2fwd_crypto_options *options);
 
 /* main processing loop */
-static void
+void
 l2fwd_main_loop(struct l2fwd_crypto_options *options, char *mac_addr, char *src_addr, char *dst_addr, char *data)
 {
 	struct rte_mbuf *m, *pkts_burst[MAX_PKT_BURST];
@@ -719,7 +721,7 @@ l2fwd_main_loop(struct l2fwd_crypto_options *options, char *mac_addr, char *src_
 	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) /
 			US_PER_S * BURST_TX_DRAIN_US;
 	struct l2fwd_crypto_params *cparams;
-	//struct l2fwd_crypto_params port_cparams[qconf->nb_crypto_devs];
+	struct l2fwd_crypto_params port_cparams[qconf->nb_crypto_devs];
 	struct rte_cryptodev_sym_session *session;
 
 	if (qconf->nb_rx_ports == 0) {
@@ -858,7 +860,7 @@ l2fwd_main_loop(struct l2fwd_crypto_options *options, char *mac_addr, char *src_
 
 }
 /* Display command line arguments usage */
-static void
+void
 l2fwd_crypto_usage(const char *prgname)
 {
 	printf("%s [EAL options] --\n"
@@ -908,7 +910,7 @@ l2fwd_crypto_usage(const char *prgname)
 }
 
 /** Parse crypto device type command line argument */
-static int
+int
 parse_cryptodev_type(enum cdev_type *type, char *optarg)
 {
 	if (strcmp("HW", optarg) == 0) {
@@ -926,7 +928,7 @@ parse_cryptodev_type(enum cdev_type *type, char *optarg)
 }
 
 /** Parse crypto chain xform command line argument */
-static int
+int
 parse_crypto_opt_chain(struct l2fwd_crypto_options *options, char *optarg)
 {
 	if (strcmp("CIPHER_HASH", optarg) == 0) {
@@ -950,7 +952,7 @@ parse_crypto_opt_chain(struct l2fwd_crypto_options *options, char *optarg)
 }
 
 /** Parse crypto cipher algo option command line argument */
-static int
+int
 parse_cipher_algo(enum rte_crypto_cipher_algorithm *algo, char *optarg)
 {
 
@@ -964,7 +966,7 @@ parse_cipher_algo(enum rte_crypto_cipher_algorithm *algo, char *optarg)
 }
 
 /** Parse crypto cipher operation command line argument */
-static int
+int
 parse_cipher_op(enum rte_crypto_cipher_operation *op, char *optarg)
 {
 	if (strcmp("ENCRYPT", optarg) == 0) {
@@ -980,7 +982,7 @@ parse_cipher_op(enum rte_crypto_cipher_operation *op, char *optarg)
 }
 
 /** Parse bytes from command line argument */
-static int
+int
 parse_bytes(uint8_t *data, char *input_arg, uint16_t max_size)
 {
 	unsigned byte_count;
@@ -1003,7 +1005,7 @@ parse_bytes(uint8_t *data, char *input_arg, uint16_t max_size)
 }
 
 /** Parse size param*/
-static int
+int
 parse_size(int *size, const char *q_arg)
 {
 	char *end = NULL;
@@ -1024,7 +1026,7 @@ parse_size(int *size, const char *q_arg)
 }
 
 /** Parse crypto cipher operation command line argument */
-static int
+int
 parse_auth_algo(enum rte_crypto_auth_algorithm *algo, char *optarg)
 {
 	if (rte_cryptodev_get_auth_algo_enum(algo, optarg) < 0) {
@@ -1036,7 +1038,7 @@ parse_auth_algo(enum rte_crypto_auth_algorithm *algo, char *optarg)
 	return 0;
 }
 
-static int
+int
 parse_auth_op(enum rte_crypto_auth_operation *op, char *optarg)
 {
 	if (strcmp("VERIFY", optarg) == 0) {
@@ -1051,7 +1053,7 @@ parse_auth_op(enum rte_crypto_auth_operation *op, char *optarg)
 	return -1;
 }
 
-static int
+int
 parse_aead_algo(enum rte_crypto_aead_algorithm *algo, char *optarg)
 {
 	if (rte_cryptodev_get_aead_algo_enum(algo, optarg) < 0) {
@@ -1063,7 +1065,7 @@ parse_aead_algo(enum rte_crypto_aead_algorithm *algo, char *optarg)
 	return 0;
 }
 
-static int
+int
 parse_aead_op(enum rte_crypto_aead_operation *op, char *optarg)
 {
 	if (strcmp("ENCRYPT", optarg) == 0) {
@@ -1077,7 +1079,7 @@ parse_aead_op(enum rte_crypto_aead_operation *op, char *optarg)
 	printf("AEAD operation specified not supported!\n");
 	return -1;
 }
-static int
+int
 parse_cryptodev_mask(struct l2fwd_crypto_options *options,
 		const char *q_arg)
 {
@@ -1099,7 +1101,7 @@ parse_cryptodev_mask(struct l2fwd_crypto_options *options,
 }
 
 /** Parse long options */
-static int
+int
 l2fwd_crypto_parse_args_long_options(struct l2fwd_crypto_options *options,
 		struct option *lgopts, int option_index)
 {
@@ -1264,7 +1266,7 @@ l2fwd_crypto_parse_args_long_options(struct l2fwd_crypto_options *options,
 }
 
 /** Parse port mask */
-static int
+int
 l2fwd_crypto_parse_portmask(struct l2fwd_crypto_options *options,
 		const char *q_arg)
 {
@@ -1286,7 +1288,7 @@ l2fwd_crypto_parse_portmask(struct l2fwd_crypto_options *options,
 }
 
 /** Parse number of queues */
-static int
+int
 l2fwd_crypto_parse_nqueue(struct l2fwd_crypto_options *options,
 		const char *q_arg)
 {
@@ -1310,7 +1312,7 @@ l2fwd_crypto_parse_nqueue(struct l2fwd_crypto_options *options,
 }
 
 /** Parse timer period */
-static int
+int
 l2fwd_crypto_parse_timer_period(struct l2fwd_crypto_options *options,
 		const char *q_arg)
 {
@@ -1335,7 +1337,7 @@ l2fwd_crypto_parse_timer_period(struct l2fwd_crypto_options *options,
 }
 
 /** Generate default options for application */
-static void
+void
 l2fwd_crypto_default_options(struct l2fwd_crypto_options *options)
 {
 	options->portmask = 0xffffffff;
@@ -1397,7 +1399,7 @@ l2fwd_crypto_default_options(struct l2fwd_crypto_options *options)
 	options->mac_updating = 1;
 }
 
-static void
+void
 display_cipher_info(struct l2fwd_crypto_options *options)
 {
 	printf("\n---- Cipher information ---\n");
@@ -1409,7 +1411,7 @@ display_cipher_info(struct l2fwd_crypto_options *options)
 	rte_hexdump(stdout, "IV:", options->cipher_iv.data, options->cipher_iv.length);
 }
 
-static void
+void
 display_auth_info(struct l2fwd_crypto_options *options)
 {
 	printf("\n---- Authentication information ---\n");
@@ -1421,7 +1423,7 @@ display_auth_info(struct l2fwd_crypto_options *options)
 	rte_hexdump(stdout, "IV:", options->auth_iv.data, options->auth_iv.length);
 }
 
-static void
+void
 display_aead_info(struct l2fwd_crypto_options *options)
 {
 	printf("\n---- AEAD information ---\n");
@@ -1434,7 +1436,7 @@ display_aead_info(struct l2fwd_crypto_options *options)
 	rte_hexdump(stdout, "AAD:", options->aad.data, options->aad.length);
 }
 
-static void
+void
 l2fwd_crypto_options_print(struct l2fwd_crypto_options *options)
 {
 	char string_cipher_op[MAX_STR_LEN];
@@ -1514,7 +1516,7 @@ l2fwd_crypto_options_print(struct l2fwd_crypto_options *options)
 }
 
 /* Parse the argument given in the command line of the application */
-static int
+int
 l2fwd_crypto_parse_args(struct l2fwd_crypto_options *options,
 		int argc, char **argv)
 {
@@ -1628,7 +1630,7 @@ l2fwd_crypto_parse_args(struct l2fwd_crypto_options *options,
 }
 
 /* Check the link status of all ports in up to 9s, and print them finally */
-static void
+void
 check_all_ports_link_status(uint32_t port_mask)
 {
 #define CHECK_INTERVAL 100 /* 100ms */
@@ -1688,7 +1690,7 @@ check_all_ports_link_status(uint32_t port_mask)
 }
 
 /* Check if device has to be HW/SW or any */
-static int
+int
 check_type(const struct l2fwd_crypto_options *options,
 		const struct rte_cryptodev_info *dev_info)
 {
@@ -1704,7 +1706,7 @@ check_type(const struct l2fwd_crypto_options *options,
 	return -1;
 }
 
-static const struct rte_cryptodev_capabilities *
+const struct rte_cryptodev_capabilities *
 check_device_support_cipher_algo(const struct l2fwd_crypto_options *options,
 		const struct rte_cryptodev_info *dev_info,
 		uint8_t cdev_id)
@@ -1738,7 +1740,7 @@ check_device_support_cipher_algo(const struct l2fwd_crypto_options *options,
 	return cap;
 }
 
-static const struct rte_cryptodev_capabilities *
+const struct rte_cryptodev_capabilities *
 check_device_support_auth_algo(const struct l2fwd_crypto_options *options,
 		const struct rte_cryptodev_info *dev_info,
 		uint8_t cdev_id)
@@ -1772,7 +1774,7 @@ check_device_support_auth_algo(const struct l2fwd_crypto_options *options,
 	return cap;
 }
 
-static const struct rte_cryptodev_capabilities *
+const struct rte_cryptodev_capabilities *
 check_device_support_aead_algo(const struct l2fwd_crypto_options *options,
 		const struct rte_cryptodev_info *dev_info,
 		uint8_t cdev_id)
@@ -1807,7 +1809,7 @@ check_device_support_aead_algo(const struct l2fwd_crypto_options *options,
 }
 
 /* Check if the device is enabled by cryptodev_mask */
-static int
+int
 check_cryptodev_mask(struct l2fwd_crypto_options *options,
 		uint8_t cdev_id)
 {
@@ -1817,7 +1819,7 @@ check_cryptodev_mask(struct l2fwd_crypto_options *options,
 	return -1;
 }
 
-static inline int
+int
 check_supported_size(uint16_t length, uint16_t min, uint16_t max,
 		uint16_t increment)
 {
@@ -1840,7 +1842,7 @@ check_supported_size(uint16_t length, uint16_t min, uint16_t max,
 	return -1;
 }
 
-static int
+int
 check_iv_param(const struct rte_crypto_param_range *iv_range_size,
 		unsigned int iv_param, int iv_random_size,
 		uint16_t iv_length)
@@ -1872,7 +1874,7 @@ check_iv_param(const struct rte_crypto_param_range *iv_range_size,
 	return 0;
 }
 
-static int
+int
 check_capabilities(struct l2fwd_crypto_options *options, uint8_t cdev_id)
 {
 	struct rte_cryptodev_info dev_info;
@@ -2113,7 +2115,7 @@ check_capabilities(struct l2fwd_crypto_options *options, uint8_t cdev_id)
 	return 0;
 }
 
-static int
+int
 initialize_cryptodevs(struct l2fwd_crypto_options *options, unsigned nb_ports,
 		uint8_t *enabled_cdevs)
 {
@@ -2393,7 +2395,7 @@ initialize_cryptodevs(struct l2fwd_crypto_options *options, unsigned nb_ports,
 	return enabled_cdev_count;
 }
 
-static int
+int
 initialize_ports(struct l2fwd_crypto_options *options)
 {
 	uint16_t last_portid = 0, portid;
@@ -2534,7 +2536,7 @@ initialize_ports(struct l2fwd_crypto_options *options)
 	return enabled_portcount;
 }
 
-static void
+void
 reserve_key_memory(struct l2fwd_crypto_options *options)
 {
 	options->cipher_xform.cipher.key.data = options->cipher_key;
@@ -2561,7 +2563,7 @@ reserve_key_memory(struct l2fwd_crypto_options *options)
 	options->aad.phys_addr = rte_malloc_virt2iova(options->aad.data);
 }
 
-int
+static int
 setup_eal(int argc, char *argv[])
 {
 	struct lcore_queue_conf *qconf = NULL;
@@ -2697,11 +2699,11 @@ setup_eal(int argc, char *argv[])
 		printf("Lcore %u: cryptodev %u\n", rx_lcore_id,
 				(unsigned)cdev_id);
 	}
-
     goptions = options;
+
 	return 0;
 }
 
-int crypto_send(char *mac_addr, char *src_addr, char *dst_addr, char *data){
+static int crypto_send(char *mac_addr, char *src_addr, char *dst_addr, char *data){
     l2fwd_main_loop(&goptions, mac_addr, src_addr, dst_addr, data);
 }

@@ -9,6 +9,8 @@ from dataclasses import dataclass
 prog = """
 #include <linux/sched.h>
 #include <uapi/linux/ptrace.h>
+#include "include/mbuf.h"
+#include "include/packet.h"
 #define KEY 1234
 #define RTE_KEY 4567
 #define RTE_KEY_FIRST 7890
@@ -18,6 +20,7 @@ struct data_t {
     u64 count;
     u32 pid;
     u64 ts;
+    u64 bytes;
 };
 
 BPF_PERF_OUTPUT(mlx5_tx_burst_none_empw_enter_events);
@@ -137,10 +140,19 @@ int mlx5_tx_burst_none_empw_enter_latency(struct pt_regs *ctx){
     u64 key = KEY, *curr, zero = 0;
     u64 *cur_cnt = current_count.lookup_or_try_init(&key, &zero);
     if(cur_cnt == NULL) return 0;
+    u32 pkt_cnt = PT_REGS_RC(ctx);
+    struct rte_mbuf **pkts = (struct rte_mbuf **)PT_REGS_PARM2(ctx);
 
     data.count = *cur_cnt;
     data.pid = bpf_get_current_pid_tgid();
     data.ts = bpf_ktime_get_ns();
+
+    for(int i = 0 ; i < 32 ; i++){
+        if(i >= pkt_cnt) break;
+        struct rte_mbuf *mbuf = pkts[i];
+        if(mbuf == 0x0) break;
+        data.bytes += mbuf->pkt_len;
+    }
 
     mlx5_tx_burst_none_empw_enter_events.perf_submit(ctx, &data, sizeof(data));
     return 0;
@@ -165,11 +177,20 @@ int mlx5_tx_burst_i_empw_enter_latency(struct pt_regs *ctx){
     u64 key = KEY, *curr, zero = 0;
     u64 *cur_cnt = current_count.lookup_or_try_init(&key, &zero);
     if(cur_cnt == NULL) return 0;
+    u32 pkt_cnt = PT_REGS_RC(ctx);
+    struct rte_mbuf **pkts = (struct rte_mbuf **)PT_REGS_PARM2(ctx);
 
     data.count = *cur_cnt;
     data.pid = bpf_get_current_pid_tgid();
     data.ts = bpf_ktime_get_ns();
    
+    for(int i = 0 ; i < 32 ; i++){
+        if(i >= pkt_cnt) break;
+        struct rte_mbuf *mbuf = pkts[i];
+        if(mbuf == 0x0) break;
+        data.bytes += mbuf->pkt_len;
+    }
+
     mlx5_tx_burst_i_empw_enter_events.perf_submit(ctx, &data, sizeof(data));
     return 0;
 }

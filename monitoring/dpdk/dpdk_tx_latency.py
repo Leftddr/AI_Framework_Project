@@ -9,11 +9,15 @@ from dataclasses import dataclass
 prog = """
 #include <linux/sched.h>
 #include <uapi/linux/ptrace.h>
+#include "include/mbuf.h"
+#include "include/packet.h"
+
 // define output data structure in C
 struct data_t {
     u64 count;
     u32 pid;
     u64 ts;
+    u64 bytes;
 };
 struct ret_data{
     u64 retval;
@@ -47,6 +51,17 @@ int mlx5_tx_burst_none_empw_latency(struct pt_regs *ctx){
     if(curr == NULL) return 0;
 
     data.count = (*curr)++;
+    u32 pkt_cnt = PT_REGS_RC(ctx);
+    struct rte_mbuf **pkts = (struct rte_mbuf **)PT_REGS_PARM2(ctx);
+
+    for(int i = 0 ; i < 32 ; i++){
+        if(i >= pkt_cnt) break;
+        struct rte_mbuf *mbuf = pkts[i];
+        if(mbuf == 0x0) break;
+
+        data.bytes += mbuf->pkt_len;
+    }
+
     current_count.update(&key, curr);
     //for submitting custom event data to user space
     mlx5_tx_burst_none_empw_events.perf_submit(ctx, &data, sizeof(data));
@@ -64,8 +79,20 @@ int mlx5_tx_burst_i_empw_latency(struct pt_regs *ctx){
    if(curr == NULL) return 0;
    
    data.count = (*curr)++;
+   u32 pkt_cnt = PT_REGS_RC(ctx);
+   struct rte_mbuf **pkts = (struct rte_mbuf **)PT_REGS_PARM2(ctx);
+
+   for(int i = 0 ; i < 32 ; i++){
+        if(i >= pkt_cnt) break;
+        struct rte_mbuf *mbuf = pkts[i];
+        if(mbuf == 0x0) break;
+
+        data.bytes += mbuf->pkt_len;
+   }
+
    current_count.update(&key, curr);
    mlx5_tx_burst_i_empw_events.perf_submit(ctx, &data, sizeof(data));
+   return 0;
 }
 
 

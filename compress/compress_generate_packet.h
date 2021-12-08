@@ -15,6 +15,7 @@
 
 #ifndef _COMP_PERF_OPS_
 #define _COMP_PERF_OPS_
+#endif
 
 #define MAX_LIST        32
 #define MIN_COMPRESSED_BUF_SIZE 8
@@ -27,6 +28,76 @@
 #define SEND_CNT 256
 
 #define DIV_CEIL(a, b)  ((a) / (b) + ((a) % (b) != 0))
+
+#define CPERF_PTEST_TYPE    ("ptest")
+#define CPERF_SILENT        ("silent")
+
+#define CPERF_POOL_SIZE     ("pool-sz")
+#define CPERF_TOTAL_OPS     ("total-ops")
+#define CPERF_BURST_SIZE    ("burst-sz")
+#define CPERF_BUFFER_SIZE   ("buffer-sz")
+#define CPERF_SEGMENT_SIZE  ("segment-sz")
+#define CPERF_DESC_NB       ("desc-nb")
+#define CPERF_IMIX      ("imix")
+
+#define CPERF_DEVTYPE       ("devtype")
+#define CPERF_OPTYPE        ("optype")
+#define CPERF_SESSIONLESS   ("sessionless")
+#define CPERF_OUT_OF_PLACE  ("out-of-place")
+#define CPERF_TEST_FILE     ("test-file")
+#define CPERF_TEST_NAME     ("test-name")
+
+#define CPERF_CIPHER_ALGO   ("cipher-algo")
+#define CPERF_CIPHER_OP     ("cipher-op")
+#define CPERF_CIPHER_KEY_SZ ("cipher-key-sz")
+#define CPERF_CIPHER_IV_SZ  ("cipher-iv-sz")
+
+#define CPERF_AUTH_ALGO     ("auth-algo")
+#define CPERF_AUTH_OP       ("auth-op")
+#define CPERF_AUTH_KEY_SZ   ("auth-key-sz")
+#define CPERF_AUTH_IV_SZ    ("auth-iv-sz")
+
+#define CPERF_AEAD_ALGO     ("aead-algo")
+#define CPERF_AEAD_OP       ("aead-op")
+#define CPERF_AEAD_KEY_SZ   ("aead-key-sz")
+#define CPERF_AEAD_IV_SZ    ("aead-iv-sz")
+#define CPERF_AEAD_AAD_SZ   ("aead-aad-sz")
+
+#define CPERF_DIGEST_SZ     ("digest-sz")
+
+#ifdef RTE_LIB_SECURITY
+#define CPERF_PDCP_SN_SZ    ("pdcp-sn-sz")
+#define CPERF_PDCP_DOMAIN   ("pdcp-domain")
+#define CPERF_PDCP_SES_HFN_EN   ("pdcp-ses-hfn-en")
+#define PDCP_DEFAULT_HFN    0x1
+#define CPERF_DOCSIS_HDR_SZ ("docsis-hdr-sz")
+#endif
+
+#define CPERF_CSV       ("csv-friendly")
+
+/* benchmark-specific options */
+#define CPERF_PMDCC_DELAY_MS    ("pmd-cyclecount-delay-ms")
+
+#define MAX_LIST 32
+
+#define CPERF_PTEST_TYPE    ("ptest")
+#define CPERF_DRIVER_NAME   ("driver-name")
+#define CPERF_SEG_SIZE      ("seg-sz")
+#define CPERF_BURST_SIZE    ("burst-sz")
+#define CPERF_EXTENDED_SIZE ("extended-input-sz")
+#define CPERF_POOL_SIZE     ("pool-sz")
+#define CPERF_MAX_SGL_SEGS  ("max-num-sgl-segs")
+#define CPERF_NUM_ITER      ("num-iter")
+#define CPERF_HUFFMAN_ENC   ("huffman-enc")
+#define CPERF_LEVEL     ("compress-level")
+#define CPERF_WINDOW_SIZE   ("window-sz")
+#define CPERF_EXTERNAL_MBUFS    ("external-mbufs")
+
+enum comp_operation {
+    COMPRESS_ONLY,
+    DECOMPRESS_ONLY,
+    COMPRESS_DECOMPRESS
+};
 
 enum cleanup_st {
     ST_CLEAR = 0,
@@ -41,6 +112,14 @@ enum cperf_test_type {
     CPERF_TEST_TYPE_THROUGHPUT,
     CPERF_TEST_TYPE_VERIFY,
     CPERF_TEST_TYPE_PMDCC
+};
+
+struct range_list {
+    uint8_t min;
+    uint8_t max;
+    uint8_t inc;
+    uint8_t count;
+    uint8_t list[MAX_LIST];
 };
 
 struct cperf_mem_resources {
@@ -125,6 +204,23 @@ struct cperf_benchmark_ctx {
 
 struct cperf_benchmark_ctx *gctx;
 
+struct cperf_buffer_info {
+    uint16_t total_segments;
+    uint16_t segment_sz;
+    uint16_t last_segment_sz;
+    uint32_t total_buffs;         /*number of buffers = number of ops*/
+    uint16_t segments_per_buff;
+    uint16_t segments_per_last_buff;
+    size_t input_data_sz;
+};
+
+static struct cperf_buffer_info buffer_info;
+
+static void
+comp_perf_extbuf_free_cb(void *addr __rte_unused, void *opaque __rte_unused)
+{
+}
+
 void
 comp_perf_free_memory(struct comp_test_data *test_data,
               struct cperf_mem_resources *mem)
@@ -163,7 +259,7 @@ comp_perf_free_memory(struct comp_test_data *test_data,
 }
 
 void
-cperf_throughput_test_destructor(void *arg)
+compress_destructor(void *arg)
 {
 	if (arg) {
 		comp_perf_free_memory(
@@ -292,9 +388,10 @@ comp_perf_allocate_external_mbufs(struct comp_test_data *test_data,
     }
 
     return 0;
+    }
 }
 
-static uint32_t
+uint32_t
 find_buf_size(uint32_t input_size)
 {
     uint32_t i;
@@ -441,7 +538,7 @@ comp_perf_allocate_memory(struct comp_test_data *test_data,
 }
 
 void *
-cperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
+compress_constructor(uint8_t dev_id, uint16_t qp_id,
 		struct comp_test_data *options)
 {
 	struct cperf_benchmark_ctx *ctx = NULL;
@@ -461,11 +558,11 @@ cperf_throughput_test_constructor(uint8_t dev_id, uint16_t qp_id,
 		return ctx;
     }
 
-	cperf_throughput_test_destructor(ctx);
+	compress_destructor(ctx);
 	return NULL;
 }
 
-static int
+int
 main_loop(struct cperf_benchmark_ctx *ctx, enum rte_comp_xform_type type, char *mac_addr, char *src_addr, char *dst_addr, char *data)
 {
 	struct comp_test_data *test_data = ctx->ver.options;
@@ -607,8 +704,6 @@ void send_compress_packet(char *mac_addr, char *src_addr, char *dst_addr, char *
     main_loop(gctx, RTE_COMP_COMPRESS, mac_addr, src_addr, dst_addr, data);
 }
 
-static struct comp_test_data *test_data;
-
 int
 param_range_check(uint16_t size, const struct rte_param_log2_range *range)
 {
@@ -634,7 +729,7 @@ param_range_check(uint16_t size, const struct rte_param_log2_range *range)
     return -1;
 }
 
-static int
+int
 comp_perf_check_capabilities(struct comp_test_data *test_data, uint8_t cdev_id)
 {
 	const struct rte_compressdev_capabilities *cap;
@@ -697,7 +792,7 @@ comp_perf_check_capabilities(struct comp_test_data *test_data, uint8_t cdev_id)
 	return 0;
 }
 
-static int
+int
 comp_perf_initialize_compressdev(struct comp_test_data *test_data,
 				 uint8_t *enabled_cdevs)
 {
@@ -806,13 +901,13 @@ comp_perf_initialize_compressdev(struct comp_test_data *test_data,
 	return enabled_cdev_count;
 }
 
-static void
+void
 comp_perf_cleanup_on_signal(int signalNumber __rte_unused)
 {
 	test_data->perf_comp_force_stop = 1;
 }
 
-static void
+void
 comp_perf_register_cleanup_on_signal(void)
 {
 	signal(SIGTERM, comp_perf_cleanup_on_signal);
@@ -836,81 +931,6 @@ comp_perf_options_default(struct comp_test_data *test_data)
     test_data->test = CPERF_TEST_TYPE_THROUGHPUT;
     test_data->use_external_mbufs = 0;
     test_data->cyclecount_delay = 500;
-}
-
-static int
-comp_perf_opts_parse_long(int opt_idx, struct comp_test_data *test_data)
-{
-    struct long_opt_parser parsermap[] = {
-        { CPERF_PTEST_TYPE, parse_cperf_test_type },
-        { CPERF_DRIVER_NAME,    parse_driver_name },
-        { CPERF_TEST_FILE,  parse_test_file },
-        { CPERF_SEG_SIZE,   parse_seg_sz },
-        { CPERF_BURST_SIZE, parse_burst_sz },
-        { CPERF_EXTENDED_SIZE,  parse_extended_input_sz },
-        { CPERF_POOL_SIZE,  parse_pool_sz },
-        { CPERF_MAX_SGL_SEGS,   parse_max_num_sgl_segs },
-        { CPERF_NUM_ITER,   parse_num_iter },
-        { CPERF_OPTYPE,     parse_op_type },
-        { CPERF_HUFFMAN_ENC,    parse_huffman_enc },
-        { CPERF_LEVEL,      parse_level },
-        { CPERF_WINDOW_SIZE,    parse_window_sz },
-        { CPERF_EXTERNAL_MBUFS, parse_external_mbufs },
-        { CPERF_CYCLECOUNT_DELAY_US,    parse_cyclecount_delay_us },
-    };
-    unsigned int i;
-
-    for (i = 0; i < RTE_DIM(parsermap); i++) {
-        if (strncmp(lgopts[opt_idx].name, parsermap[i].lgopt_name,
-                strlen(lgopts[opt_idx].name)) == 0)
-            return parsermap[i].parser_fn(test_data, optarg);
-    }
-
-    return -EINVAL;
-}
-
-int
-comp_perf_options_parse(struct comp_test_data *test_data, int argc, char **argv)
-{
-    int opt, retval, opt_idx;
-
-    while ((opt = getopt_long(argc, argv, "h", lgopts, &opt_idx)) != EOF) {
-        switch (opt) {
-        case 'h':
-            usage(argv[0]);
-            rte_exit(EXIT_SUCCESS, "Displayed help\n");
-            break;
-        /* long options */
-        case 0:
-            retval = comp_perf_opts_parse_long(opt_idx, test_data);
-            if (retval != 0)
-                return retval;
-
-            break;
-
-        default:
-            usage(argv[0]);
-            return -EINVAL;
-        }
-    }
-
-    return 0;
-}
-
-int
-comp_perf_options_check(struct comp_test_data *test_data)
-{
-    if (test_data->driver_name[0] == '\0') {
-        RTE_LOG(ERR, USER1, "Driver name has to be set\n");
-        return -1;
-    }
-
-    if (test_data->input_file[0] == '\0') {
-        RTE_LOG(ERR, USER1, "Input file name has to be set\n");
-        return -1;
-    }
-
-    return 0;
 }
 
 int
@@ -944,18 +964,6 @@ setup_eal(int argc, char **argv)
 	ret = EXIT_SUCCESS;
 	test_data->cleanup = ST_TEST_DATA;
 	comp_perf_options_default(test_data);
-	if (comp_perf_options_parse(test_data, argc, argv) < 0) {
-		RTE_LOG(ERR, USER1,
-			"Parsing one or more user options failed\n");
-		ret = EXIT_FAILURE;
-		return -1;
-	}
-
-	if (comp_perf_options_check(test_data) < 0) {
-		ret = EXIT_FAILURE;
-		return -1;
-	}
-
 	nb_compressdevs =
 		comp_perf_initialize_compressdev(test_data, enabled_cdevs);
 
@@ -971,7 +979,7 @@ setup_eal(int argc, char **argv)
     RTE_LCORE_FOREACH_WORKER(lcore_id){
         if(i == total_nb_qps) break;
         cdev_id = enabled_cdevs[cdev_index];
-        struct cperf_benchmark_ctx *ctx = cperf_throughput_test_constructor(cdev_id, qp_id, test_data);
+        struct cperf_benchmark_ctx *ctx = compress_constructor(cdev_id, qp_id, test_data);
         if(ctx == NULL) {
             RTE_LOG(ERR, USER1, "Allocate ctx failed\n");
             return -1;

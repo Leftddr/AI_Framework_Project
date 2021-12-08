@@ -1,18 +1,9 @@
-#include <rte_memory.h>
 #include <stdio.h>
 #include <stdbool.h>
-#include <stdlib.h>
-#include <unistd.h>
 #include <signal.h>
-#include <time.h>
 
-#include <rte_launch.h>
-#include <rte_eal.h>
 #include <rte_per_lcore.h>
-#include <rte_lcore.h>
-#include <rte_ethdev.h>
 #include <rte_udp.h>
-#include <rte_ip.h>
 
 #define RX_RING_SIZE 1024                                                                                                                    
 #define TX_RING_SIZE 1024                                                                                                                      
@@ -43,8 +34,8 @@
 #define RTE_MAX_SEGS_PER_PKT 255
 #define MAX_PKTS 256
 
-struct rte_mempool *mbuf_pool;
-struct rte_ether_addr my_addr;
+static struct rte_mempool *mbuf_pool;
+static struct rte_ether_addr my_addr;
 
 uint32_t string_to_ip(char *s) {
     unsigned char a[4];
